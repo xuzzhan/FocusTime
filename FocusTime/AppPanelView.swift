@@ -5,7 +5,7 @@ enum AppPanelSection: String, CaseIterable, Identifiable {
     case settings
     case about
     static var visibleCases: [AppPanelSection] {
-        [.settings, .about]
+        [.rewards, .settings, .about]
     }
     
     var id: String { rawValue }
