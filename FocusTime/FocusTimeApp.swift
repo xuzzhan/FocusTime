@@ -29,6 +29,12 @@ struct FocusTimeApp: App {
             )
         }
         .menuBarExtraStyle(.window)
+
+        Window("FocusTime", id: "app-panel") {
+            AppPanelView(vm: vm)
+        }
+        .defaultSize(width: 720, height: 500)
+        .windowResizability(.contentSize)
     }
 }
 
@@ -63,80 +69,4 @@ struct MenuBarLabelView: View {
                 .fixedSize()
         }
     }
-}
-
-final class AppPanelWindowController {
-    static let shared = AppPanelWindowController()
-
-    private var window: NSWindow?
-
-    func show(vm: PomodoroViewModel, section: AppPanelSection = .rewards) {
-        let contentView = AppPanelView(vm: vm, initialSelection: section)
-
-        if let window = window {
-            window.contentView = NSHostingView(rootView: contentView)
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 500),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-
-        window.title = "FocusTime"
-        window.center()
-        window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: contentView)
-
-        self.window = window
-
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-}
-
-#Preview("Idle") {
-    MenuBarLabelView(
-        timerStatus: .idle,
-        sessionMode: .focus,
-        timeString: "25:00"
-    )
-    .padding(8)
-}
-
-#Preview("Focus Running") {
-    MenuBarLabelView(
-        timerStatus: .running,
-        sessionMode: .focus,
-        timeString: "24:12"
-    )
-    .padding(8)
-    .background(Color.black)
-    .preferredColorScheme(.dark)
-}
-
-#Preview("Break Running") {
-    MenuBarLabelView(
-        timerStatus: .running,
-        sessionMode: .rest,
-        timeString: "04:59"
-    )
-    .padding(8)
-    .background(Color.black)
-    .preferredColorScheme(.dark)
-}
-
-#Preview("Paused") {
-    MenuBarLabelView(
-        timerStatus: .paused,
-        sessionMode: .focus,
-        timeString: "12:34"
-    )
-    .padding(8)
-    .background(Color.black)
-    .preferredColorScheme(.dark)
 }

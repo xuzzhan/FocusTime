@@ -2,6 +2,15 @@ import Foundation
 import SwiftUI
 import Combine
 
+// 先放类型定义，再放存储属性，再放初始化，再放公开状态/基础计算属性，然后按功能分组：
+// 初始化与默认值
+// 计时器控制
+// 时长更新
+// 统计相关
+// 开机自启
+// 声音与通知
+// 文案与格式化
+
 final class PomodoroViewModel: ObservableObject {
     enum SessionMode {
         case focus
@@ -21,24 +30,32 @@ final class PomodoroViewModel: ObservableObject {
         var id: String { rawValue }
     }
 
+    struct DailyStatsPoint: Identifiable {
+        let id = UUID()
+        let date: Date
+        let focusHours: Double
+        let breakHours: Double
+    }
+
     @AppStorage("appLanguage") var appLanguageRaw = AppLanguage.zh.rawValue
     @AppStorage("focusMinutes") var focusMinutes = 50.0
     @AppStorage("breakMinutes") var breakMinutes = 10.0
-    
+
     @AppStorage("dailyFocusSecondsData") private var dailyFocusSecondsData: Data = Data()
     @AppStorage("dailyBreakSecondsData") private var dailyBreakSecondsData: Data = Data()
-    
+
     @AppStorage("alarmSound") var alarmSound: String = "Glass"
     @AppStorage("tickOnlyInFocus") var tickOnlyInFocus: Bool = true
-    @AppStorage("tickVolume") var tickVolume: Double = 0.3   // 0.0 ~ 1.0
+    @AppStorage("tickVolume") var tickVolume: Double = 0.3
     @AppStorage("hasInitializedDefaults") private var hasInitializedDefaults = false
-    
+
     @Published var launchAtLoginEnabled: Bool = false
     @Published var launchAtLoginError: String? = nil
 
     @Published var remainingSeconds = 25 * 60
     @Published var sessionMode: SessionMode = .focus
     @Published var timerStatus: TimerStatus = .idle
+    @Published var panelSelection: AppPanelSection = .rewards
 
     private var timer: Timer?
 
@@ -48,49 +65,10 @@ final class PomodoroViewModel: ObservableObject {
 
     var availableSystemSounds: [String] {
         [
-            "None",
-            "Basso",
-            "Blow",
-            "Bottle",
-            "Frog",
-            "Funk",
-            "Glass",
-            "Hero",
-            "Morse",
-            "Ping",
-            "Pop",
-            "Purr",
-            "Sosumi",
-            "Submarine",
-            "Tink"
+            "None", "Basso", "Blow", "Bottle", "Frog",
+            "Funk", "Glass", "Hero", "Morse", "Ping",
+            "Pop", "Purr", "Sosumi", "Submarine", "Tink"
         ]
-    }
-    
-    init() {
-        applyInitialDefaultsIfNeeded()
-        resetToCurrentModeDuration()
-        NotificationManager.shared.requestAuthorization()
-        refreshLaunchAtLoginStatus()
-    }
-
-    private func applyInitialDefaultsIfNeeded() {
-        guard !hasInitializedDefaults else { return }
-
-        appLanguageRaw = AppLanguage.en.rawValue
-        focusMinutes = 50.0
-        breakMinutes = 10.0
-        tickVolume = 0.3
-        alarmSound = "Glass"
-        tickOnlyInFocus = true
-        setLaunchAtLogin(true)
-        hasInitializedDefaults = true
-    }
-    
-    struct DailyStatsPoint: Identifiable {
-        let id = UUID()
-        let date: Date
-        let focusHours: Double
-        let breakHours: Double
     }
 
     private var statsDateFormatter: DateFormatter {
@@ -105,101 +83,28 @@ final class PomodoroViewModel: ObservableObject {
         statsDateFormatter.string(from: Date())
     }
 
-    private func loadSecondsMap(from data: Data) -> [String: Int] {
-        guard !data.isEmpty else { return [:] }
-
-        do {
-            return try JSONDecoder().decode([String: Int].self, from: data)
-        } catch {
-            print("读取统计失败: \(error.localizedDescription)")
-            return [:]
-        }
+    init() {
+        applyInitialDefaultsIfNeeded()
+        resetToCurrentModeDuration()
+        NotificationManager.shared.requestAuthorization()
+        refreshLaunchAtLoginStatus()
     }
 
-    private func saveSecondsMap(_ map: [String: Int], to storage: inout Data) {
-        do {
-            storage = try JSONEncoder().encode(map)
-        } catch {
-            print("保存统计失败: \(error.localizedDescription)")
-        }
-    }
-
-    private func addFocusSecondsToday(_ seconds: Int) {
-        var map = loadSecondsMap(from: dailyFocusSecondsData)
-        map[todayKey, default: 0] += seconds
-        saveSecondsMap(map, to: &dailyFocusSecondsData)
-    }
-
-    private func addBreakSecondsToday(_ seconds: Int) {
-        var map = loadSecondsMap(from: dailyBreakSecondsData)
-        map[todayKey, default: 0] += seconds
-        saveSecondsMap(map, to: &dailyBreakSecondsData)
-    }
-
-    func weekTitle(forWeekOffset offset: Int) -> String {
-        let calendar = Calendar.current
-        let today = Date()
-
-        guard let targetDate = calendar.date(byAdding: .weekOfYear, value: offset, to: today),
-              let weekInterval = calendar.dateInterval(of: .weekOfYear, for: targetDate),
-              let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekInterval.start) else {
-            return ""
-        }
-
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = appLanguage == .zh
-            ? Locale(identifier: "zh_CN")
-            : Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = appLanguage == .zh ? "M/d" : "MMM d"
-
-        return "\(formatter.string(from: weekInterval.start)) - \(formatter.string(from: weekEnd))"
-    }
-    
-    func weeklyStats(weekOffset: Int) -> [DailyStatsPoint] {
-        let focusMap = loadSecondsMap(from: dailyFocusSecondsData)
-        let breakMap = loadSecondsMap(from: dailyBreakSecondsData)
-        let calendar = Calendar.current
-        let today = Date()
-
-        guard let targetDate = calendar.date(byAdding: .weekOfYear, value: weekOffset, to: today),
-              let weekInterval = calendar.dateInterval(of: .weekOfYear, for: targetDate) else {
-            return []
-        }
-
-        return (0..<7).compactMap { day in
-            guard let date = calendar.date(byAdding: .day, value: day, to: weekInterval.start) else {
-                return nil
-            }
-
-            let key = statsDateFormatter.string(from: date)
-
-            return DailyStatsPoint(
-                date: date,
-                focusHours: Double(focusMap[key, default: 0]) / 3600.0,
-                breakHours: Double(breakMap[key, default: 0]) / 3600.0
-            )
-        }
-    }
-    
     deinit {
         timer?.invalidate()
     }
 
-    func refreshLaunchAtLoginStatus() {
-        launchAtLoginEnabled = LaunchAtLoginManager.isEnabled
-    }
+    private func applyInitialDefaultsIfNeeded() {
+        guard !hasInitializedDefaults else { return }
 
-    func setLaunchAtLogin(_ enabled: Bool) {
-        do {
-            try LaunchAtLoginManager.setEnabled(enabled)
-            launchAtLoginEnabled = LaunchAtLoginManager.isEnabled
-            launchAtLoginError = nil
-        } catch {
-            launchAtLoginEnabled = LaunchAtLoginManager.isEnabled
-            launchAtLoginError = error.localizedDescription
-            print("设置开机启动失败: \(error.localizedDescription)")
-        }
+        appLanguageRaw = AppLanguage.en.rawValue
+        focusMinutes = 50.0
+        breakMinutes = 10.0
+        tickVolume = 0.3
+        alarmSound = "Glass"
+        tickOnlyInFocus = true
+        setLaunchAtLogin(true)
+        hasInitializedDefaults = true
     }
 
     func startOrPauseOrResume() {
@@ -218,14 +123,14 @@ final class PomodoroViewModel: ObservableObject {
         timer = nil
         timerStatus = .running
 
-        if tickVolume > 0.01, (!tickOnlyInFocus || sessionMode == .focus) {
+        if tickVolume > 0.01, !tickOnlyInFocus || sessionMode == .focus {
             TickSoundManager.shared.startLoop(volume: tickVolume)
         } else {
             TickSoundManager.shared.stopTick()
         }
 
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
+            guard let self else { return }
 
             DispatchQueue.main.async {
                 guard self.timerStatus == .running else { return }
@@ -238,7 +143,7 @@ final class PomodoroViewModel: ObservableObject {
             }
         }
 
-        if let timer = timer {
+        if let timer {
             RunLoop.main.add(timer, forMode: .common)
         }
     }
@@ -285,12 +190,7 @@ final class PomodoroViewModel: ObservableObject {
 
         startTimer()
     }
-    
-    func updateTickVolume(_ value: Double) {
-        tickVolume = min(max(value, 0), 1)
-        TickSoundManager.shared.updateVolume(tickVolume)
-    }
-    
+
     func resetToCurrentModeDuration() {
         if sessionMode == .focus {
             remainingSeconds = Int(focusMinutes) * 60
@@ -313,14 +213,164 @@ final class PomodoroViewModel: ObservableObject {
         }
     }
 
+    func updateTickVolume(_ value: Double) {
+        tickVolume = min(max(value, 0), 1)
+        TickSoundManager.shared.updateVolume(tickVolume)
+    }
+
+    private func loadSecondsMap(from data: Data) -> [String: Int] {
+        guard !data.isEmpty else { return [:] }
+
+        do {
+            return try JSONDecoder().decode([String: Int].self, from: data)
+        } catch {
+            print("读取统计失败: \(error.localizedDescription)")
+            return [:]
+        }
+    }
+
+    private func saveSecondsMap(_ map: [String: Int], to storage: inout Data) {
+        do {
+            storage = try JSONEncoder().encode(map)
+        } catch {
+            print("保存统计失败: \(error.localizedDescription)")
+        }
+    }
+
+    private func addFocusSecondsToday(_ seconds: Int) {
+        var map = loadSecondsMap(from: dailyFocusSecondsData)
+        map[todayKey, default: 0] += seconds
+        saveSecondsMap(map, to: &dailyFocusSecondsData)
+    }
+
+    private func addBreakSecondsToday(_ seconds: Int) {
+        var map = loadSecondsMap(from: dailyBreakSecondsData)
+        map[todayKey, default: 0] += seconds
+        saveSecondsMap(map, to: &dailyBreakSecondsData)
+    }
+
+    func weeklyStats(weekOffset: Int) -> [DailyStatsPoint] {
+        let focusMap = loadSecondsMap(from: dailyFocusSecondsData)
+        let breakMap = loadSecondsMap(from: dailyBreakSecondsData)
+        let calendar = Calendar.current
+        let today = Date()
+
+        guard let targetDate = calendar.date(byAdding: .weekOfYear, value: weekOffset, to: today),
+              let weekInterval = calendar.dateInterval(of: .weekOfYear, for: targetDate) else {
+            return []
+        }
+
+        return (0..<7).compactMap { day in
+            guard let date = calendar.date(byAdding: .day, value: day, to: weekInterval.start) else {
+                return nil
+            }
+
+            let key = statsDateFormatter.string(from: date)
+
+            return DailyStatsPoint(
+                date: date,
+                focusHours: Double(focusMap[key, default: 0]) / 3600.0,
+                breakHours: Double(breakMap[key, default: 0]) / 3600.0
+            )
+        }
+    }
+
+    func weekTitle(forWeekOffset offset: Int) -> String {
+        let calendar = Calendar.current
+        let today = Date()
+
+        guard let targetDate = calendar.date(byAdding: .weekOfYear, value: offset, to: today),
+              let weekInterval = calendar.dateInterval(of: .weekOfYear, for: targetDate),
+              let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekInterval.start) else {
+            return ""
+        }
+
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = appLanguage == .zh
+            ? Locale(identifier: "zh_CN")
+            : Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = appLanguage == .zh ? "M/d" : "MMM d"
+
+        return "\(formatter.string(from: weekInterval.start)) - \(formatter.string(from: weekEnd))"
+    }
+
+    func totalCoins() -> Int {
+        let focusMap = loadSecondsMap(from: dailyFocusSecondsData)
+        let totalFocusSeconds = focusMap.values.reduce(0, +)
+        return totalFocusSeconds / 3600
+    }
+
+    func coinsForWeek(weekOffset: Int) -> Int {
+        let totalFocusSeconds = weeklyStats(weekOffset: weekOffset)
+            .reduce(0.0) { $0 + $1.focusHours * 3600.0 }
+
+        return Int(totalFocusSeconds) / 3600
+    }
+
+    func weekCoinsText(weekOffset: Int) -> String {
+        let coins = coinsForWeek(weekOffset: weekOffset)
+        return "\(min(coins, 999))"
+    }
+
+    func totalCoinsText() -> String {
+        let coins = totalCoins()
+        return coins > 9999 ? "9999+" : "\(coins)"
+    }
+
+    func coinsSummaryText(weekOffset: Int) -> String {
+        let week = weekCoinsText(weekOffset: weekOffset)
+        let total = totalCoinsText()
+
+        if appLanguage == .zh {
+            return "周 \(week) / 总 \(total)"
+        } else {
+            return "Week \(week) / All \(total)"
+        }
+    }
+
+    func refreshLaunchAtLoginStatus() {
+        launchAtLoginEnabled = LaunchAtLoginManager.isEnabled
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            try LaunchAtLoginManager.setEnabled(enabled)
+            launchAtLoginEnabled = LaunchAtLoginManager.isEnabled
+            launchAtLoginError = nil
+        } catch {
+            launchAtLoginEnabled = LaunchAtLoginManager.isEnabled
+            launchAtLoginError = error.localizedDescription
+            print("设置开机启动失败: \(error.localizedDescription)")
+        }
+    }
+
     func previewAlarmSound() {
-        SystemSoundManager.shared.playSystemSound(named: alarmSound, loop: false)
+        playAlarmSound()
     }
 
     func playSelectedAlarmSound() {
+        playAlarmSound()
+    }
+
+    private func playAlarmSound() {
         SystemSoundManager.shared.playSystemSound(named: alarmSound, loop: false)
     }
-    
+
+    private func notifyFocusFinished() {
+        let title = appLanguage == .zh ? "学习结束" : "Focus finished"
+        let body = appLanguage == .zh ? "该休息了" : "Time for a break"
+        playAlarmSound()
+        NotificationManager.shared.send(title: title, body: body)
+    }
+
+    private func notifyBreakFinished() {
+        let title = appLanguage == .zh ? "休息结束" : "Break finished"
+        let body = appLanguage == .zh ? "继续学习" : "Back to focus"
+        playAlarmSound()
+        NotificationManager.shared.send(title: title, body: body)
+    }
+
     func primaryButtonText() -> String {
         switch timerStatus {
         case .idle:
@@ -360,79 +410,6 @@ final class PomodoroViewModel: ObservableObject {
 
     func menuBarTitle() -> String {
         "\(stageText()) \(timeString())"
-    }
-
-    func totalCoins() -> Int {
-        let focusMap = loadSecondsMap(from: dailyFocusSecondsData)
-        let totalFocusSeconds = focusMap.values.reduce(0, +)
-        return totalFocusSeconds / 3600
-    }
-
-    func coinsForWeek(weekOffset: Int) -> Int {
-        let totalFocusSeconds = weeklyStats(weekOffset: weekOffset)
-            .reduce(0.0) { $0 + $1.focusHours * 3600.0 }
-
-        return Int(totalFocusSeconds) / 3600
-    }
-    
-    func coinsSummaryText(weekOffset: Int) -> String {
-        let week = weekCoinsText(weekOffset: weekOffset)
-        let total = totalCoinsText()
-
-        if appLanguage == .zh {
-            return "周 \(week) / 总 \(total)"
-        } else {
-            return "Week \(week) / All \(total)"
-        }
-    }
-    
-    func weekCoinsText(weekOffset: Int) -> String {
-        let coins = coinsForWeek(weekOffset: weekOffset)
-        return "\(min(coins, 999))"
-    }
-
-    func totalCoinsText() -> String {
-        let coins = totalCoins()
-        return coins > 9999 ? "9999+" : "\(coins)"
-    }
-    
-    func showRewardsPanel() {
-        let alert = NSAlert()
-        alert.messageText = appLanguage == .zh ? "金币兑换" : "Rewards"
-        alert.informativeText = appLanguage == .zh
-            ? """
-    当前总金币：\(totalCoins())
-
-    可兑换示例：
-    3 金币：休息 20 分钟
-    5 金币：一杯咖啡
-    10 金币：今晚自由娱乐
-    """
-            : """
-    Total coins: \(totalCoins())
-
-    Examples:
-    3 coins: 20-minute break
-    5 coins: a coffee
-    10 coins: free leisure tonight
-    """
-        alert.addButton(withTitle: appLanguage == .zh ? "确定" : "OK")
-        NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
-    }
-    
-    private func notifyFocusFinished() {
-        let title = appLanguage == .zh ? "学习结束" : "Focus finished"
-        let body = appLanguage == .zh ? "该休息了" : "Time for a break"
-        SystemSoundManager.shared.playSystemSound(named: alarmSound, loop: false)
-        NotificationManager.shared.send(title: title, body: body)
-    }
-
-    private func notifyBreakFinished() {
-        let title = appLanguage == .zh ? "休息结束" : "Break finished"
-        let body = appLanguage == .zh ? "继续学习" : "Back to focus"
-        SystemSoundManager.shared.playSystemSound(named: alarmSound, loop: false)
-        NotificationManager.shared.send(title: title, body: body)
     }
 
     func t(_ key: String) -> String {

@@ -2,19 +2,23 @@ import SwiftUI
 import AppKit
 import Charts
 
+// 先状态和样式属性，再是 body
+// 按页面出现顺序放各个 section，接着放这些 section 依赖的小组件
+// 最后放工具函数
 struct ContentView: View {
     @ObservedObject var vm: PomodoroViewModel
     @State private var statsWeekOffset: Int = 0
     @State private var hoveredItem: PomodoroViewModel.DailyStatsPoint? = nil
     @State private var showChartSection = false
-    
+    @Environment(\.openWindow) private var openWindow
+
     private let stageFont: Font = .headline
     private let statusFont: Font = .subheadline
     private let timerFont: Font = .system(size: 24, weight: .medium, design: .rounded)
     private let sectionTitleFont: Font = .subheadline
     private let valueFont: Font = .subheadline
     private let inputFont: Font = .subheadline
-    
+
     private var isRunning: Bool {
         vm.timerStatus == .running
     }
@@ -37,6 +41,64 @@ struct ContentView: View {
         .onChange(of: vm.breakMinutes) { _, newValue in
             vm.updateBreakMinutes(newValue)
         }
+    }
+
+    private var headerSection: some View {
+        VStack(spacing: 4) {
+            Text(vm.stageText())
+                .font(stageFont.weight(.semibold))
+                .lineLimit(1)
+
+            Text(vm.statusText())
+                .font(statusFont)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Text(vm.timeString())
+                .font(timerFont)
+                .monospacedDigit()
+                .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var actionSection: some View {
+        HStack(spacing: 8) {
+            Button(vm.primaryButtonText()) {
+                vm.startOrPauseOrResume()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .frame(maxWidth: .infinity)
+
+            Button(vm.t("reset")) {
+                vm.resetTimer()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var quickAdjustSection: some View {
+        VStack(spacing: 10) {
+            quickAdjustRow(
+                title: vm.t("focus_time"),
+                valueText: "\(Int(vm.focusMinutes)) \(vm.t("minute_unit"))",
+                value: $vm.focusMinutes,
+                range: 1...120
+            )
+
+            quickAdjustRow(
+                title: vm.t("break_time"),
+                valueText: "\(Int(vm.breakMinutes)) \(vm.t("minute_unit"))",
+                value: $vm.breakMinutes,
+                range: 1...60
+            )
+        }
+        .padding(10)
+        .background(Color.gray.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private var todayStatsSection: some View {
@@ -129,7 +191,30 @@ struct ContentView: View {
         .background(Color.gray.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
-    
+
+    private var bottomMenuSection: some View {
+        VStack(spacing: 0) {
+            Divider()
+                .padding(.bottom, 6)
+
+            menuRow(
+                icon: "sidebar.left",
+                title: vm.appLanguage == .zh ? "设置" : "Settings"
+            ) {
+                NSApp.activate(ignoringOtherApps: true)
+                vm.panelSelection = .rewards
+                openWindow(id: "app-panel")
+            }
+
+            menuRow(
+                icon: "power",
+                title: vm.t("quit")
+            ) {
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
     private var statsChartView: some View {
         let data = vm.weeklyStats(weekOffset: statsWeekOffset)
 
@@ -144,14 +229,14 @@ struct ContentView: View {
                     .foregroundStyle(.purple)
                     .lineStyle(StrokeStyle(lineWidth: 1.8, lineCap: .round))
                     .interpolationMethod(.catmullRom)
-                    
+
                     PointMark(
                         x: .value("Date", item.date),
                         y: .value("Hours", item.focusHours)
                     )
                     .foregroundStyle(.purple)
                     .symbolSize(40)
-                    
+
                     LineMark(
                         x: .value("Date", item.date),
                         y: .value("Hours", item.breakHours),
@@ -160,16 +245,16 @@ struct ContentView: View {
                     .foregroundStyle(.blue)
                     .lineStyle(StrokeStyle(lineWidth: 1.8, lineCap: .round))
                     .interpolationMethod(.catmullRom)
-                    
+
                     PointMark(
                         x: .value("Date", item.date),
                         y: .value("Hours", item.breakHours)
                     )
                     .foregroundStyle(.blue)
                     .symbolSize(40)
-                    
-                    if let item = hoveredItem {
-                        RuleMark(x: .value("Date", item.date))
+
+                    if let hoveredItem {
+                        RuleMark(x: .value("Date", hoveredItem.date))
                             .foregroundStyle(.gray.opacity(0.3))
                     }
                 }
@@ -217,11 +302,11 @@ struct ContentView: View {
                                         hoveredItem = nil
                                         return
                                     }
-                                    
+
                                     let frame = geo[plotFrame]
                                     let relativeX = value.location.x - frame.origin.x
                                     let relativeY = value.location.y - frame.origin.y
-                                    
+
                                     guard relativeX >= 0,
                                           relativeX <= frame.width,
                                           relativeY >= 0,
@@ -229,22 +314,21 @@ struct ContentView: View {
                                         hoveredItem = nil
                                         return
                                     }
-                                    
+
                                     guard let date: Date = proxy.value(atX: relativeX) else {
                                         hoveredItem = nil
                                         return
                                     }
-                                    
-                                    hoveredItem = data.min(by: {
-                                        abs($0.date.timeIntervalSince(date)) <
-                                            abs($1.date.timeIntervalSince(date))
-                                    })
+
+                                    hoveredItem = data.min {
+                                        abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date))
+                                    }
                                 }
                         )
                 }
             }
             .frame(height: 120)
-            
+
             HStack(spacing: 6) {
                 chartLegendRow(color: .purple, title: vm.t("focus_hours"))
                 chartLegendRow(color: .blue, title: vm.t("break_hours"))
@@ -260,17 +344,16 @@ struct ContentView: View {
             .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
-
         .overlay(alignment: .topTrailing) {
-            if let item = hoveredItem {
+            if let hoveredItem {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(shortWeekdayLabel(item.date))
+                    Text(shortWeekdayLabel(hoveredItem.date))
                         .font(.caption2)
 
-                    Text("\(vm.t("focus_hours")): \(String(format: "%.1f", item.focusHours))h")
+                    Text("\(vm.t("focus_hours")): \(String(format: "%.1f", hoveredItem.focusHours))h")
                         .font(.caption2)
 
-                    Text("\(vm.t("break_hours")): \(String(format: "%.1f", item.breakHours))h")
+                    Text("\(vm.t("break_hours")): \(String(format: "%.1f", hoveredItem.breakHours))h")
                         .font(.caption2)
                 }
                 .padding(6)
@@ -278,121 +361,6 @@ struct ContentView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .padding(.top, 8)
                 .padding(.trailing, 10)
-            }
-        }
-    }
-
-    private func shortWeekdayLabel(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar.current
-        formatter.locale = vm.appLanguage == .zh ? Locale(identifier: "zh_CN") : Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = vm.appLanguage == .zh ? "E" : "EEE"
-        return formatter.string(from: date)
-    }
-
-    @ViewBuilder
-    private func chartLegendRow(color: Color, title: String) -> some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(color)
-                .frame(width: 5, height: 5)
-
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-    
-    @ViewBuilder
-    private func statItem(title: String, value: String) -> some View {
-        HStack {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Spacer()
-
-            Text(value)
-                .font(.subheadline.weight(.medium))
-                .monospacedDigit()
-        }
-    }
-    
-    private var headerSection: some View {
-        VStack(spacing: 4) {
-            Text(vm.stageText())
-                .font(stageFont.weight(.semibold))
-                .lineLimit(1)
-
-            Text(vm.statusText())
-                .font(statusFont)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            Text(vm.timeString())
-                .font(timerFont)
-                .monospacedDigit()
-                .padding(.top, 2)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var actionSection: some View {
-        HStack(spacing: 8) {
-            Button(vm.primaryButtonText()) {
-                vm.startOrPauseOrResume()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .frame(maxWidth: .infinity)
-
-            Button(vm.t("reset")) {
-                vm.resetTimer()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    private var quickAdjustSection: some View {
-        VStack(spacing: 10) {
-            quickAdjustRow(
-                title: vm.t("focus_time"),
-                valueText: "\(Int(vm.focusMinutes)) \(vm.t("minute_unit"))",
-                value: $vm.focusMinutes,
-                range: 1...120
-            )
-
-            quickAdjustRow(
-                title: vm.t("break_time"),
-                valueText: "\(Int(vm.breakMinutes)) \(vm.t("minute_unit"))",
-                value: $vm.breakMinutes,
-                range: 1...60
-            )
-        }
-        .padding(10)
-        .background(Color.gray.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-
-    private var bottomMenuSection: some View {
-        VStack(spacing: 0) {
-            Divider()
-                .padding(.bottom, 6)
-
-            menuRow(
-                icon: "sidebar.left",
-                title: vm.appLanguage == .zh ? "设置" : "Settings"
-            ) {
-                AppPanelWindowController.shared.show(vm: vm, section: .rewards)
-            }
-
-            menuRow(
-                icon: "power",
-                title: vm.t("quit")
-            ) {
-                NSApp.terminate(nil)
             }
         }
     }
@@ -470,6 +438,29 @@ struct ContentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func chartLegendRow(color: Color, title: String) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(color)
+                .frame(width: 5, height: 5)
+
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func shortWeekdayLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar.current
+        formatter.locale = vm.appLanguage == .zh
+            ? Locale(identifier: "zh_CN")
+            : Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = vm.appLanguage == .zh ? "E" : "EEE"
+        return formatter.string(from: date)
     }
 }
 

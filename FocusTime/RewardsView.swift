@@ -53,16 +53,7 @@ struct RewardsView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(vm.appLanguage == .zh ? "主题商店" : "Theme Store")
                 .font(.headline)
-
-//            Text(
-//                vm.appLanguage == .zh
-//                ? "这里可以放默认主题、石墨、森林、午夜、暖纸、黑金等可兑换皮肤。后面你只要把每个主题做成商品卡片即可。"
-//                : "This area can hold redeemable themes such as Default, Graphite, Forest, Midnight, Warm Paper, and Black Gold."
-//            )
-//            .font(.subheadline)
-//            .foregroundStyle(.secondary)
-//            .fixedSize(horizontal: false, vertical: true)
-
+            
             Divider()
 
             VStack(alignment: .leading, spacing: 10) {

@@ -4,10 +4,11 @@ enum AppPanelSection: String, CaseIterable, Identifiable {
     case rewards
     case settings
     case about
+
     static var visibleCases: [AppPanelSection] {
         [.rewards, .settings, .about]
     }
-    
+
     var id: String { rawValue }
 
     func title(for language: PomodoroViewModel.AppLanguage) -> String {
@@ -35,56 +36,40 @@ enum AppPanelSection: String, CaseIterable, Identifiable {
 
 struct AppPanelView: View {
     @ObservedObject var vm: PomodoroViewModel
-    @State private var selection: AppPanelSection?
 
-    init(vm: PomodoroViewModel, initialSelection: AppPanelSection = .rewards) {
-        self.vm = vm
-        _selection = State(initialValue: initialSelection)
+    private var navigationTitle: String {
+        vm.appLanguage == .zh ? "设置" : "Settings"
     }
 
     var body: some View {
         NavigationSplitView {
-            List(AppPanelSection.visibleCases, selection: $selection) { section in
+            List(AppPanelSection.visibleCases, selection: $vm.panelSelection) { section in
                 Label(section.title(for: vm.appLanguage), systemImage: section.iconName)
                     .tag(section)
             }
             .listStyle(.sidebar)
+            .navigationTitle(navigationTitle)
             .navigationSplitViewColumnWidth(min: 135, ideal: 150, max: 180)
         } detail: {
-            Group {
-                switch selection {
-                case .rewards:
-                    RewardsView(vm: vm)
-
-                case .settings:
-                    SettingsView(vm: vm)
-
-                case .about:
-                    AboutView(vm: vm)
-
-                case .none:
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(vm.appLanguage == .zh ? "请选择一个项目" : "Select an item")
-                            .font(.title3.weight(.semibold))
-
-                        Text(
-                            vm.appLanguage == .zh
-                            ? "从左侧导航栏中选择页面。"
-                            : "Choose a page from the sidebar."
-                        )
-                        .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(NSColor.windowBackgroundColor))
+            detailView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(NSColor.windowBackgroundColor))
         }
-//        .frame(width: 520)
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch vm.panelSelection {
+        case .rewards:
+            RewardsView(vm: vm)
+        case .settings:
+            SettingsView(vm: vm)
+        case .about:
+            AboutView(vm: vm)
+        }
     }
 }
 
 #Preview("Content") {
     AppPanelView(vm: PomodoroViewModel())
-//        .frame(width: 520)
 }
