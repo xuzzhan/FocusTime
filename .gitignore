@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Xcode 用户数据
+xcuserdata/
+*.xcuserstate
+
+# 构建产物
+build/
+DerivedData/
+
+# Swift Package
+.build/
+Packages/
+
+# 归档
+*.xcarchive
+
+# 临时文件
+*.swp
+*.tmp
